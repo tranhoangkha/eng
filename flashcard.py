@@ -2,6 +2,7 @@ import tkinter as tk
 import random
 import pdfplumber
 import os
+import re  # Để làm sạch các ký tự thừa
 from googletrans import Translator  # Thư viện để dịch tự động
 
 # Đường dẫn tới các file lưu từ
@@ -18,7 +19,7 @@ def extract_words_from_pdf(pdf_path):
         for page in pdf.pages:
             text = page.extract_text()
             if text:
-                words += text.split()  # Chia nhỏ các từ ra
+                words += re.findall(r'\b\w+\b', text)  # Chỉ lấy từ, bỏ các ký tự đặc biệt
     return list(set(words))  # Loại bỏ từ trùng lặp
 
 # Hàm dịch từ sang tiếng Việt
@@ -45,19 +46,31 @@ def remove_word_from_file(word, file_path):
             for w in words:
                 file.write(f"{w.strip()}\n")
 
+# Làm sạch từ, bỏ các ký tự không cần thiết
+def clean_word(word):
+    return re.sub(r'[^\w\s]', '', word).strip()
+
 # Hàm kiểm tra đáp án và lưu kết quả
 def check_answer(selected_option):
     global current_question
     correct_word, correct_meaning, options = current_question  # Lấy nghĩa đã dịch từ câu hỏi
     
+    # Tách bỏ "A. ", "B. ", "C. ", "D. " để chỉ lấy phần nghĩa
+    selected_option_meaning = selected_option.split(". ", 1)[1]  # Chỉ lấy phần sau "A. ", "B. "...
+
+    # Làm sạch nghĩa để tránh các lỗi về dấu chấm, dấu phẩy
+    selected_option_meaning = clean_word(selected_option_meaning)
+    correct_meaning = clean_word(correct_meaning)
+
     # So sánh nghĩa tiếng Việt đã dịch và đáp án người dùng chọn
-    if selected_option == correct_meaning:  # So sánh trực tiếp giữa nghĩa đã dịch và lựa chọn của người dùng
-        result_label.config(text="Đúng!")
+    if selected_option_meaning == correct_meaning:  # So sánh trực tiếp giữa nghĩa đã dịch và lựa chọn của người dùng
+        result_label.config(text="Đúng!", bg='#d3f8e2')
         log_word(correct_word, correct_words_file)  # Lưu từ vào file đúng
     else:
-        result_label.config(text=f"Sai! Đáp án đúng là: {correct_meaning}")
+        result_label.config(text=f"Sai! Đáp án đúng là: {correct_meaning}", bg='#f8d7da')
         log_word(correct_word, wrong_words_file)  # Lưu từ vào file sai
-    root.after(2000, next_question)
+    
+    start_timer(0.2, next_question)  # Đợi 2 giây và chuyển sang câu hỏi tiếp theo
 
 # Chuyển sang câu hỏi tiếp theo
 def next_question():
@@ -72,6 +85,7 @@ def next_question():
     btn_c.config(text=f"C. {options[2]}")
     btn_d.config(text=f"D. {options[3]}")
     result_label.config(text="")
+    timer_label.config(text="")  # Reset bộ đếm thời gian
 
 # Hàm tạo flashcard câu hỏi
 def create_flashcard_question(word_list):
@@ -90,6 +104,21 @@ def create_flashcard_question(word_list):
     random.shuffle(options)  # Xáo trộn các lựa chọn
     return correct_word, correct_meaning, options  # Trả về từ gốc, nghĩa đúng và các lựa chọn
 
+# Đếm ngược thời gian và hiển thị lên màn hình
+def start_timer(duration, callback):
+    remaining_time = duration
+
+    def update_timer():
+        nonlocal remaining_time
+        if remaining_time > 0:
+            timer_label.config(text=f"Chờ: {remaining_time} giây")
+            remaining_time -= 1
+            root.after(1000, update_timer)
+        else:
+            callback()
+
+    update_timer()
+
 # Chuyển từ đã học sang file chưa thuộc và ngược lại
 def move_word_between_files(source_file, destination_file):
     global current_question
@@ -99,7 +128,7 @@ def move_word_between_files(source_file, destination_file):
     # Thêm từ vào file đích
     log_word(correct_word, destination_file)
     result_label.config(text=f"Đã chuyển từ: {correct_word}")
-    root.after(2000, next_question)
+    start_timer(1, next_question)  # Đợi 2 giây và chuyển sang câu hỏi tiếp theo
 
 # Học từ từ file đúng hoặc sai
 def study_from_file(file_path):
@@ -128,35 +157,44 @@ root.title("Flashcard Học Từ Vựng")
 question_label = tk.Label(root, text="", font=('Arial', 16), wraplength=400)
 question_label.pack(pady=20)
 
-btn_a = tk.Button(root, text="", font=('Arial', 14), width=40, command=lambda: check_answer(btn_a.cget("text")))
+timer_label = tk.Label(root, text="", font=('Arial', 14))  # Hiển thị bộ đếm thời gian
+timer_label.pack(pady=10)
+
+# Chỉnh lại các nút để bỏ border nhưng vẫn giữ giao diện mặc định
+btn_a = tk.Button(root, text="", font=('Arial', 12), width=30, command=lambda: check_answer(btn_a.cget("text")),
+                  highlightthickness=0, bd=0)  # Bỏ viền đen
 btn_a.pack(pady=5)
 
-btn_b = tk.Button(root, text="", font=('Arial', 14), width=40, command=lambda: check_answer(btn_b.cget("text")))
+btn_b = tk.Button(root, text="", font=('Arial', 12), width=30, command=lambda: check_answer(btn_b.cget("text")),
+                  highlightthickness=0, bd=0)  # Bỏ viền đen
 btn_b.pack(pady=5)
 
-btn_c = tk.Button(root, text="", font=('Arial', 14), width=40, command=lambda: check_answer(btn_c.cget("text")))
+btn_c = tk.Button(root, text="", font=('Arial', 12), width=30, command=lambda: check_answer(btn_c.cget("text")),
+                  highlightthickness=0, bd=0)  # Bỏ viền đen
 btn_c.pack(pady=5)
 
-btn_d = tk.Button(root, text="", font=('Arial', 14), width=40, command=lambda: check_answer(btn_d.cget("text")))
+btn_d = tk.Button(root, text="", font=('Arial', 12), width=30, command=lambda: check_answer(btn_d.cget("text")),
+                  highlightthickness=0, bd=0)  # Bỏ viền đen
 btn_d.pack(pady=5)
+
 
 result_label = tk.Label(root, text="", font=('Arial', 14))
 result_label.pack(pady=20)
 
 # Nút chuyển từ đã học sang file chưa thuộc
-btn_move_to_wrong = tk.Button(root, text="Chuyển sang chưa học", font=('Arial', 14), command=lambda: move_word_between_files(correct_words_file, wrong_words_file))
+btn_move_to_wrong = tk.Button(root, text="Chuyển sang chưa học", font=('Arial', 12), command=lambda: move_word_between_files(correct_words_file, wrong_words_file))
 btn_move_to_wrong.pack(pady=10)
 
 # Nút chuyển từ chưa thuộc sang đã học
-btn_move_to_correct = tk.Button(root, text="Chuyển sang đã học", font=('Arial', 14), command=lambda: move_word_between_files(wrong_words_file, correct_words_file))
+btn_move_to_correct = tk.Button(root, text="Chuyển sang đã học", font=('Arial', 12), command=lambda: move_word_between_files(wrong_words_file, correct_words_file))
 btn_move_to_correct.pack(pady=10)
 
 # Nút để học từ file đúng
-btn_study_correct = tk.Button(root, text="Học từ file đã đúng", font=('Arial', 14), command=lambda: study_from_file(correct_words_file))
+btn_study_correct = tk.Button(root, text="Học từ file đã đúng", font=('Arial', 12), command=lambda: study_from_file(correct_words_file))
 btn_study_correct.pack(pady=10)
 
 # Nút để học từ file sai
-btn_study_wrong = tk.Button(root, text="Học từ file sai", font=('Arial', 14), command=lambda: study_from_file(wrong_words_file))
+btn_study_wrong = tk.Button(root, text="Học từ file sai", font=('Arial', 12), command=lambda: study_from_file(wrong_words_file))
 btn_study_wrong.pack(pady=10)
 
 next_question()  # Khởi tạo câu hỏi đầu tiên
