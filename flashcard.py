@@ -4,6 +4,7 @@ import pdfplumber
 import os
 import re  # Để làm sạch các ký tự thừa
 from googletrans import Translator  # Thư viện để dịch tự động
+import unicodedata
 
 # Đường dẫn tới các file lưu từ
 correct_words_file = "words_correct.txt"
@@ -11,6 +12,9 @@ wrong_words_file = "words_wrong.txt"
 
 # Khởi tạo Google Translator
 translator = Translator()
+def remove_accents(input_str):
+    nfkd_form = unicodedata.normalize('NFKD', input_str)
+    return ''.join([c for c in nfkd_form if not unicodedata.combining(c)])
 
 # Hàm trích xuất từ từ file PDF
 def extract_words_from_pdf(pdf_path):
@@ -24,16 +28,28 @@ def extract_words_from_pdf(pdf_path):
 
 # Hàm dịch từ sang tiếng Việt
 def translate_word(word):
+    cleaned_word = clean_word(word)  # Làm sạch từ trước khi dịch
+    if not cleaned_word.isalpha():  # Kiểm tra nếu từ chứa ký tự không phải chữ cái
+        return f"Từ không hợp lệ: {cleaned_word}"  # Thông báo lỗi cho từ không hợp lệ
     try:
-        translation = translator.translate(word, src='en', dest='vi')
+        translation = translator.translate(cleaned_word, src='en', dest='vi')
         return translation.text.strip()  # Loại bỏ khoảng trắng thừa
     except Exception as e:
-        return word.strip()  # Nếu không dịch được, trả về từ gốc và loại bỏ khoảng trắng thừa
+        return cleaned_word.strip()
 
 # Hàm lưu từ vào file txt
+# Hàm lưu từ vào file txt nếu từ chưa tồn tại
 def log_word(word, file_path):
+    # Kiểm tra nếu file tồn tại và từ chưa có trong file
+    if os.path.exists(file_path):
+        with open(file_path, "r") as file:
+            words = [line.strip() for line in file.readlines()]
+            if word in words:
+                return  # Nếu từ đã tồn tại thì không lưu
+    # Lưu từ vào file nếu chưa có
     with open(file_path, "a") as file:
         file.write(f"{word.strip()}\n")  # Loại bỏ khoảng trắng thừa khi lưu
+
 
 # Hàm xóa từ khỏi file txt
 def remove_word_from_file(word, file_path):
@@ -46,9 +62,10 @@ def remove_word_from_file(word, file_path):
             for w in words:
                 file.write(f"{w.strip()}\n")
 
-# Làm sạch từ, bỏ các ký tự không cần thiết
+# Cập nhật hàm làm sạch từ, bỏ các ký tự không phải chữ cái (kể cả số)
 def clean_word(word):
-    return re.sub(r'[^\w\s]', '', word).strip()
+    return re.sub(r'[^a-zA-Z]', '', word).strip()
+
 
 # Hàm kiểm tra đáp án và lưu kết quả
 def check_answer(selected_option):
@@ -56,7 +73,7 @@ def check_answer(selected_option):
     correct_word, correct_meaning, options = current_question  # Lấy nghĩa đã dịch từ câu hỏi
     
     # Tách bỏ "A. ", "B. ", "C. ", "D. " để chỉ lấy phần nghĩa
-    selected_option_meaning = selected_option.split(". ", 1)[1]  # Chỉ lấy phần sau "A. ", "B. "...
+    selected_option_meaning = selected_option.split(". ", 1)[1]  # Chỉ lấy phần sau "A. ", "B. "...    
 
     # Làm sạch nghĩa để tránh các lỗi về dấu chấm, dấu phẩy
     selected_option_meaning = clean_word(selected_option_meaning)
@@ -67,10 +84,15 @@ def check_answer(selected_option):
         result_label.config(text="Đúng!", bg='#d3f8e2')
         log_word(correct_word, correct_words_file)  # Lưu từ vào file đúng
     else:
-        result_label.config(text=f"Sai! Đáp án đúng là: {correct_meaning}", bg='#f8d7da')
+        correct_meaning_no_accents = remove_accents(correct_meaning)
+        result_label.config(text=f"Sai! Đáp án đúng là: {correct_meaning_no_accents}", bg='#f8d7da', font=('Arial', 12))
+
+        # result_label.config(text=f"Sai! Đáp án đúng là: {correct_meaning}", bg='#f8d7da')
+
         log_word(correct_word, wrong_words_file)  # Lưu từ vào file sai
     
-    start_timer(0.2, next_question)  # Đợi 2 giây và chuyển sang câu hỏi tiếp theo
+    update_stt_labels()  # Cập nhật số thứ tự của cả hai file
+    start_timer(0.1, next_question)  # Đợi 0.5 giây và chuyển sang câu hỏi tiếp theo
 
 # Chuyển sang câu hỏi tiếp theo
 def next_question():
@@ -111,9 +133,9 @@ def start_timer(duration, callback):
     def update_timer():
         nonlocal remaining_time
         if remaining_time > 0:
-            timer_label.config(text=f"Chờ: {remaining_time} giây")
-            remaining_time -= 1
-            root.after(1000, update_timer)
+            timer_label.config(text=f"Chờ: {remaining_time:.1f} giây")
+            remaining_time -= 0.1
+            root.after(100, update_timer)
         else:
             callback()
 
@@ -128,7 +150,8 @@ def move_word_between_files(source_file, destination_file):
     # Thêm từ vào file đích
     log_word(correct_word, destination_file)
     result_label.config(text=f"Đã chuyển từ: {correct_word}")
-    start_timer(1, next_question)  # Đợi 2 giây và chuyển sang câu hỏi tiếp theo
+    update_stt_labels()  # Cập nhật số từ (STT)
+    start_timer(0.5, next_question)  # Đợi 0.5 giây và chuyển sang câu hỏi tiếp theo
 
 # Học từ từ file đúng hoặc sai
 def study_from_file(file_path):
@@ -143,6 +166,20 @@ def study_from_file(file_path):
             result_label.config(text="Không có từ nào trong danh sách.")
     else:
         result_label.config(text="Không tìm thấy file.")
+
+# Cập nhật số thứ tự (STT) của file đúng và file sai
+def update_stt_labels():
+    correct_count = count_words_in_file(correct_words_file)
+    wrong_count = count_words_in_file(wrong_words_file)
+    stt_correct_label.config(text=f"STT đúng: {correct_count}")
+    stt_wrong_label.config(text=f"STT sai: {wrong_count}")
+
+# Hàm đếm số từ trong file
+def count_words_in_file(file_path):
+    if os.path.exists(file_path):
+        with open(file_path, "r") as file:
+            return len([line.strip() for line in file.readlines()])
+    return 0
 
 # Đường dẫn tới file PDF
 pdf_path = 'American_Oxford_3000.pdf'
@@ -177,7 +214,6 @@ btn_d = tk.Button(root, text="", font=('Arial', 12), width=30, command=lambda: c
                   highlightthickness=0, bd=0)  # Bỏ viền đen
 btn_d.pack(pady=5)
 
-
 result_label = tk.Label(root, text="", font=('Arial', 14))
 result_label.pack(pady=20)
 
@@ -185,11 +221,19 @@ result_label.pack(pady=20)
 btn_move_to_wrong = tk.Button(root, text="Chuyển sang chưa học", font=('Arial', 12), command=lambda: move_word_between_files(correct_words_file, wrong_words_file))
 btn_move_to_wrong.pack(pady=10)
 
+# Hiển thị số thứ tự file sai
+stt_wrong_label = tk.Label(root, text=f"STT sai: {count_words_in_file(wrong_words_file)}", font=('Arial', 12))
+stt_wrong_label.pack(pady=5)
+
+
 # Nút chuyển từ chưa thuộc sang đã học
 btn_move_to_correct = tk.Button(root, text="Chuyển sang đã học", font=('Arial', 12), command=lambda: move_word_between_files(wrong_words_file, correct_words_file))
 btn_move_to_correct.pack(pady=10)
+# Hiển thị số thứ tự file đúng
+stt_correct_label = tk.Label(root, text=f"STT đúng: {count_words_in_file(correct_words_file)}", font=('Arial', 12))
+stt_correct_label.pack(pady=5)
 
-# Nút để học từ file đúng
+# Nút để học từ file đã đúng
 btn_study_correct = tk.Button(root, text="Học từ file đã đúng", font=('Arial', 12), command=lambda: study_from_file(correct_words_file))
 btn_study_correct.pack(pady=10)
 
@@ -197,7 +241,11 @@ btn_study_correct.pack(pady=10)
 btn_study_wrong = tk.Button(root, text="Học từ file sai", font=('Arial', 12), command=lambda: study_from_file(wrong_words_file))
 btn_study_wrong.pack(pady=10)
 
-next_question()  # Khởi tạo câu hỏi đầu tiên
+# Bắt đầu với câu hỏi đầu tiên
+next_question()
+
+# Khởi động cập nhật STT khi khởi động chương trình
+update_stt_labels()
 
 # Bắt đầu chương trình tkinter
 root.mainloop()
