@@ -9,7 +9,7 @@ import unicodedata
 # Đường dẫn tới các file lưu từ
 correct_words_file = "words_correct.txt"
 wrong_words_file = "words_wrong.txt"
-
+scores_file = "scores.txt"  # File lưu số điểm của từng từ
 # Khởi tạo Google Translator
 translator = Translator()
 def remove_accents(input_str):
@@ -37,18 +37,21 @@ def translate_word(word):
     except Exception as e:
         return cleaned_word.strip()
 
-# Hàm lưu từ vào file txt
+
 # Hàm lưu từ vào file txt nếu từ chưa tồn tại
 def log_word(word, file_path):
     # Kiểm tra nếu file tồn tại và từ chưa có trong file
     if os.path.exists(file_path):
         with open(file_path, "r") as file:
+            # Đọc tất cả các từ trong file, loại bỏ khoảng trắng thừa
             words = [line.strip() for line in file.readlines()]
+            # Kiểm tra nếu từ đã tồn tại thì không lưu
             if word in words:
-                return  # Nếu từ đã tồn tại thì không lưu
+                return  # Nếu từ đã tồn tại thì thoát hàm, không lưu lại
     # Lưu từ vào file nếu chưa có
     with open(file_path, "a") as file:
         file.write(f"{word.strip()}\n")  # Loại bỏ khoảng trắng thừa khi lưu
+
 
 
 # Hàm xóa từ khỏi file txt
@@ -66,10 +69,13 @@ def remove_word_from_file(word, file_path):
 def clean_word(word):
     return re.sub(r'[^a-zA-Z]', '', word).strip()
 
+# Biến cờ để kiểm tra xem có đang học từ file sai không
+is_studying_wrong_file = False
 
 # Hàm kiểm tra đáp án và lưu kết quả
+# Hàm kiểm tra đáp án và lưu kết quả
 def check_answer(selected_option):
-    global current_question
+    global current_question, is_studying_wrong_file
     correct_word, correct_meaning, options = current_question  # Lấy nghĩa đã dịch từ câu hỏi
     
     # Tách bỏ "A. ", "B. ", "C. ", "D. " để chỉ lấy phần nghĩa
@@ -79,20 +85,66 @@ def check_answer(selected_option):
     selected_option_meaning = clean_word(selected_option_meaning)
     correct_meaning = clean_word(correct_meaning)
 
-    # So sánh nghĩa tiếng Việt đã dịch và đáp án người dùng chọn
-    if selected_option_meaning == correct_meaning:  # So sánh trực tiếp giữa nghĩa đã dịch và lựa chọn của người dùng
+    if selected_option_meaning == correct_meaning:  # Nếu đáp án đúng
         result_label.config(text="Đúng!", bg='#d3f8e2')
-        log_word(correct_word, correct_words_file)  # Lưu từ vào file đúng
-    else:
-        correct_meaning_no_accents = remove_accents(correct_meaning)
-        result_label.config(text=f"Sai! Đáp án đúng là: {correct_meaning_no_accents}", bg='#f8d7da', font=('Arial', 12))
 
-        # result_label.config(text=f"Sai! Đáp án đúng là: {correct_meaning}", bg='#f8d7da')
+        if is_studying_wrong_file:
+            # Gọi hàm update_score để tăng điểm cho từ khi học từ file sai
+            update_score(correct_word, 1)  # Tăng 1 điểm cho từ
 
-        log_word(correct_word, wrong_words_file)  # Lưu từ vào file sai
-    
+            # Nếu điểm của từ >= 3, xóa từ khỏi danh sách sai
+            if get_word_score(correct_word) >= 3:
+                remove_word_from_file(correct_word, wrong_words_file)  # Xóa từ khỏi file sai
+
+        # Kiểm tra nếu từ chưa có trong correct_words_file, thì mới ghi vào
+        if not word_exists_in_file(correct_word, correct_words_file):
+            log_word(correct_word, correct_words_file)  # Lưu từ vào file đúng
+
+    else:  # Nếu đáp án sai
+        # Dịch từ đúng sang tiếng Việt và hiển thị
+        correct_meaning_no_accents = translator.translate(correct_word, src='en', dest='vi')
+        result_label.config(text=f"Sai! Đáp án đúng là: {correct_meaning_no_accents.text}", bg='#f8d7da', font=('Arial', 12))
+
+        if is_studying_wrong_file:
+            # Trừ 1 điểm nếu người dùng trả lời sai và đang học từ file sai
+            update_score(correct_word, -1)  # Điểm có thể âm
+
+        # Lưu từ vào file sai (nếu chưa có)
+        log_word(correct_word, wrong_words_file)
+
     update_stt_labels()  # Cập nhật số thứ tự của cả hai file
     start_timer(0.1, next_question)  # Đợi 0.5 giây và chuyển sang câu hỏi tiếp theo
+
+def word_exists_in_file(word, file_path):
+    if os.path.exists(file_path):
+        with open(file_path, "r") as file:
+            words = [line.strip() for line in file.readlines()]
+            if word in words:
+                return True  # Từ đã tồn tại trong file
+    return False  # Từ chưa tồn tại
+# Hàm lấy số điểm của từ
+def get_word_score(word):
+    if os.path.exists(scores_file):
+        with open(scores_file, "r") as file:
+            scores = {line.split(":")[0]: int(line.split(":")[1].strip()) for line in file}
+        return scores.get(word, 0)
+    return 0
+
+# Hàm cập nhật số điểm của từ
+def update_score(word, increment):
+    scores = {}
+    if os.path.exists(scores_file):
+        with open(scores_file, "r") as file:
+            scores = {line.split(":")[0]: int(line.split(":")[1].strip()) for line in file}
+    
+    # Cập nhật điểm của từ, cho phép điểm âm
+    current_score = scores.get(word, 0) + increment
+    scores[word] = current_score  # Không cần giới hạn điểm âm
+
+    # Ghi lại các điểm mới vào file
+    with open(scores_file, "w") as file:
+        for w, score in scores.items():
+            file.write(f"{w}: {score}\n")
 
 # Chuyển sang câu hỏi tiếp theo
 def next_question():
@@ -155,17 +207,26 @@ def move_word_between_files(source_file, destination_file):
 
 # Học từ từ file đúng hoặc sai
 def study_from_file(file_path):
+    global is_studying_wrong_file
     if os.path.exists(file_path):
         with open(file_path, "r") as file:
             words = [line.strip() for line in file.readlines()]
         if words:
             global word_list
             word_list = words  # Cập nhật danh sách từ hiện tại
+            
+            # Kiểm tra xem có đang học từ file sai không
+            if file_path == wrong_words_file:
+                is_studying_wrong_file = True  # Đặt cờ thành True khi học từ file sai
+            else:
+                is_studying_wrong_file = False  # Đặt cờ thành False khi không học từ file sai
+
             next_question()
         else:
             result_label.config(text="Không có từ nào trong danh sách.")
     else:
         result_label.config(text="Không tìm thấy file.")
+
 
 # Cập nhật số thứ tự (STT) của file đúng và file sai
 def update_stt_labels():
