@@ -5,6 +5,15 @@ import os
 import re  # Để làm sạch các ký tự thừa
 from googletrans import Translator  # Thư viện để dịch tự động
 import unicodedata
+import pyttsx3  # Thêm thư viện để chuyển văn bản thành giọng nói
+
+# Khởi tạo công cụ đọc văn bản
+engine = pyttsx3.init()
+
+# Hàm đọc văn bản
+def speak(text):
+    engine.say(text)
+    engine.runAndWait()
 
 # Đường dẫn tới các file lưu từ
 correct_words_file = "words_correct.txt"
@@ -160,6 +169,7 @@ def next_question():
     btn_d.config(text=f"D. {options[3]}")
     result_label.config(text="")
     timer_label.config(text="")  # Reset bộ đếm thời gian
+    speak(correct_word)
 
 # Hàm tạo flashcard câu hỏi
 def create_flashcard_question(word_list):
@@ -241,7 +251,13 @@ def count_words_in_file(file_path):
         with open(file_path, "r") as file:
             return len([line.strip() for line in file.readlines()])
     return 0
-
+def on_key_press(event):
+    global current_question
+    correct_word, correct_meaning, options = current_question
+    
+    # Nếu nhấn phím Ctrl, sẽ đọc lại từ tiếng Anh
+    if event.keysym == 'Control_L' or event.keysym == 'Control_R':
+        speak(correct_word)
 # Đường dẫn tới file PDF
 pdf_path = 'American_Oxford_3000.pdf'
 
@@ -252,6 +268,10 @@ word_list = extract_words_from_pdf(pdf_path)
 root = tk.Tk()
 root.title("Flashcard Học Từ Vựng")
 
+
+# Ràng buộc sự kiện phím nhấn Ctrl với root
+root.bind("<Control_L>", on_key_press)
+root.bind("<Control_R>", on_key_press)
 question_label = tk.Label(root, text="", font=('Arial', 16), wraplength=400)
 question_label.pack(pady=20)
 
